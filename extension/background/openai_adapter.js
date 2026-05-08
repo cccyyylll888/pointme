@@ -92,14 +92,14 @@ export function openAIResponseToAnthropic(resp) {
   return { content, stop_reason: choice.finish_reason };
 }
 
-// === 调用 ===
-export async function callOpenAICompatible({ baseUrl, model, apiKey, system, messages, tools, maxTokens = 1024 }) {
+// === 非流式调用（保留作为 fallback）===
+export async function callOpenAICompatible({ baseUrl, model, apiKey, system, messages, tools, maxTokens = 1024, onPartialStep }) {
   if (!baseUrl) throw new Error('OpenAI 兼容：未配置 Base URL');
   if (!model)   throw new Error('OpenAI 兼容：未配置 Model 名称');
   if (!apiKey)  throw new Error('OpenAI 兼容：未配置 API Key');
 
   const url = baseUrl.replace(/\/+$/, '') + '/chat/completions';
-  const body = {
+  const baseBody = {
     model,
     max_tokens: maxTokens,
     messages: anthropicToOpenAIMessages(system, messages),
@@ -107,18 +107,88 @@ export async function callOpenAICompatible({ baseUrl, model, apiKey, system, mes
     tool_choice: 'auto'
   };
 
+  // 默认走 streaming —— 提速感知最大的那一招
+  return await streamOpenAI({ url, apiKey, body: baseBody, onPartialStep });
+}
+
+async function streamOpenAI({ url, apiKey, body, onPartialStep }) {
   const r = await fetch(url, {
     method: 'POST',
-    headers: { 'content-type': 'application/json', 'authorization': 'Bearer ' + apiKey },
-    body: JSON.stringify(body)
+    headers: { 'content-type': 'application/json', 'authorization': 'Bearer ' + apiKey, 'accept': 'text/event-stream' },
+    body: JSON.stringify({ ...body, stream: true })
   });
   if (!r.ok) {
     const text = await r.text();
-    // 失败时把发出去的 messages 打印到 SW console，方便诊断（不打印 key）
-    console.error('[PointMe openai] request failed', { url, model, status: r.status, errorBody: text });
+    console.error('[PointMe openai] request failed', { url, model: body.model, status: r.status, errorBody: text });
     console.error('[PointMe openai] outbound messages:', JSON.stringify(body.messages, null, 2));
     throw new Error(`OpenAI 兼容 API ${r.status}: ${text.slice(0, 400)}`);
   }
-  const json = await r.json();
-  return openAIResponseToAnthropic(json);
+
+  const reader = r.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  // 按 index 累积 tool_calls；OpenAI 流式协议里 tool_call 用 index 标识，arguments 是字符串增量
+  const toolAcc = new Map(); // index → { id, name, args }
+  let textAcc = '';
+
+  const tryEmitSayStep = (acc) => {
+    if (acc.name !== 'say_step') return;
+    const json = acc.args || '';
+    const stepM = json.match(/"stepNumber"\s*:\s*(\d+)/);
+    if (!stepM) return;
+    const stepNumber = parseInt(stepM[1], 10);
+    const instM = json.match(/"instruction"\s*:\s*"((?:[^"\\]|\\.)*)/);
+    const detM  = json.match(/"detail"\s*:\s*"((?:[^"\\]|\\.)*)/);
+    const unescape = (s) => s.replace(/\\n/g, '\n').replace(/\\"/g, '"').replace(/\\\\/g, '\\');
+    const instruction = instM ? unescape(instM[1]) : '';
+    const detail      = detM  ? unescape(detM[1])  : '';
+    const sig = stepNumber + '|' + instruction + '|' + detail;
+    if (acc.lastSig === sig) return;
+    acc.lastSig = sig;
+    onPartialStep?.({ stepNumber, instruction, detail });
+  };
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    let idx;
+    while ((idx = buffer.indexOf('\n')) !== -1) {
+      const line = buffer.slice(0, idx).trim();
+      buffer = buffer.slice(idx + 1);
+      if (!line.startsWith('data:')) continue;
+      const payload = line.slice(5).trim();
+      if (!payload || payload === '[DONE]') continue;
+      let chunk;
+      try { chunk = JSON.parse(payload); } catch { continue; }
+
+      const delta = chunk.choices?.[0]?.delta;
+      if (!delta) continue;
+      if (typeof delta.content === 'string') textAcc += delta.content;
+
+      for (const tc of delta.tool_calls || []) {
+        const i = tc.index ?? 0;
+        let acc = toolAcc.get(i);
+        if (!acc) { acc = { id: null, name: null, args: '' }; toolAcc.set(i, acc); }
+        if (tc.id) acc.id = tc.id;
+        if (tc.function?.name) acc.name = tc.function.name;
+        if (tc.function?.arguments) {
+          acc.args += tc.function.arguments;
+          tryEmitSayStep(acc);
+        }
+      }
+    }
+  }
+
+  // 拼成 Anthropic 风格 content blocks
+  const content = [];
+  if (textAcc.trim()) content.push({ type: 'text', text: textAcc });
+  for (const [_, acc] of [...toolAcc.entries()].sort((a, b) => a[0] - b[0])) {
+    let parsed = {};
+    try { parsed = acc.args ? JSON.parse(acc.args) : {}; }
+    catch (e) { parsed = { __parseError: e.message, __raw: acc.args }; }
+    content.push({ type: 'tool_use', id: acc.id || `call_${Math.random().toString(36).slice(2,10)}`, name: acc.name, input: parsed });
+  }
+  return { content };
 }

@@ -73,9 +73,12 @@
     return div;
   };
 
-  const addStep = (stepNumber, instruction, detail) => {
+  // stepNumber → cardEl，用于流式更新同一张卡片
+  const stepCards = new Map();
+
+  const buildCard = (stepNumber) => {
     const card = document.createElement('div');
-    card.className = 'pm-step';
+    card.className = 'pm-step pm-step-streaming';
     const badge = document.createElement('div');
     badge.className = 'pm-step-badge';
     badge.textContent = stepNumber > 0 ? String(stepNumber) : '!';
@@ -83,22 +86,46 @@
     body.className = 'pm-step-body';
     const inst = document.createElement('div');
     inst.className = 'pm-step-instruction';
-    inst.innerHTML = renderInline(instruction);
     body.appendChild(inst);
-    if (detail) {
-      const det = document.createElement('div');
-      det.className = 'pm-step-detail';
-      det.innerHTML = renderInline(detail);
-      body.appendChild(det);
-    }
     card.appendChild(badge);
     card.appendChild(body);
     log.appendChild(card);
+    return card;
+  };
+
+  // 创建或更新步骤卡片；finalized=true 时收掉流式光标
+  const upsertStep = (stepNumber, instruction, detail, finalized) => {
+    let card = stepCards.get(stepNumber);
+    if (!card) {
+      card = buildCard(stepNumber);
+      stepCards.set(stepNumber, card);
+    }
+    const inst = card.querySelector('.pm-step-instruction');
+    inst.innerHTML = renderInline(instruction || '');
+
+    let det = card.querySelector('.pm-step-detail');
+    if (detail) {
+      if (!det) {
+        det = document.createElement('div');
+        det.className = 'pm-step-detail';
+        card.querySelector('.pm-step-body').appendChild(det);
+      }
+      det.innerHTML = renderInline(detail);
+    } else if (det) {
+      det.remove();
+    }
+    if (finalized) card.classList.remove('pm-step-streaming');
     log.scrollTop = log.scrollHeight;
     return card;
   };
 
-  const clearLog = () => { log.innerHTML = ''; };
+  // 兼容旧调用
+  const addStep = upsertStep;
+
+  const clearLog = () => {
+    log.innerHTML = '';
+    stepCards.clear();
+  };
 
   const setThinking = (b) => {
     mascot.classList.toggle('thinking', !!b);
@@ -107,7 +134,7 @@
 
   window.__pointme_sidebar__ = {
     open, close, isOpen,
-    addMessage, addStep, clearLog, setThinking,
+    addMessage, addStep, upsertStep, clearLog, setThinking,
     onSubmit(fn) { submitHandler = fn; }
   };
 })();

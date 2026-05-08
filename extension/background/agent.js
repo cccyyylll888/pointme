@@ -12,8 +12,9 @@
 
 import { TOOLS, SYSTEM_PROMPT } from './prompts.js';
 import { callOpenAICompatible } from './openai_adapter.js';
+import { streamAnthropicMessages } from './anthropic_stream.js';
 
-const ANTHROPIC_MODEL = 'claude-sonnet-4-6';
+const ANTHROPIC_MODEL = 'claude-haiku-4-5-20251001';
 const ANTHROPIC_API_DEFAULT = 'https://api.anthropic.com/v1/messages';
 const SESSION_TTL_MS = 60 * 60 * 1000; // 1 小时无活动清掉
 
@@ -128,8 +129,14 @@ async function sendToPort(session, msg) {
 
 async function runAgentLoop(session) {
   const MAX_ROUNDS = 25;
+
+  // 流式回调：在 LLM 还没结束输出时，提前把 say_step 的内容流到 sidebar
+  const onPartialStep = (partial) => {
+    sendToPort(session, { type: 'step_streaming', runId: session.runId, ...partial }).catch(() => {});
+  };
+
   for (let round = 0; round < MAX_ROUNDS; round++) {
-    const resp = await callLLM(session.messages);
+    const resp = await callLLM(session.messages, onPartialStep);
     const blocks = resp.content || [];
 
     const assistantContent = [];
@@ -192,7 +199,7 @@ async function invokeContentTool(session, toolUseId, name, input) {
   });
 }
 
-async function callLLM(messages) {
+async function callLLM(messages, onPartialStep) {
   const cfg = await chrome.storage.local.get([
     'provider', 'apiKey', 'proxyUrl',
     'openaiBaseUrl', 'openaiModel', 'openaiKey'
@@ -207,14 +214,15 @@ async function callLLM(messages) {
       system:  SYSTEM_PROMPT,
       messages,
       tools:   TOOLS,
-      maxTokens: 1024
+      maxTokens: 1024,
+      onPartialStep
     });
   }
 
-  return await callAnthropic(messages, cfg);
+  return await callAnthropic(messages, cfg, onPartialStep);
 }
 
-async function callAnthropic(messages, cfg) {
+async function callAnthropic(messages, cfg, onPartialStep) {
   const url = cfg.proxyUrl || ANTHROPIC_API_DEFAULT;
   const useDirect = !cfg.proxyUrl;
   if (useDirect && !cfg.apiKey) {
@@ -234,10 +242,5 @@ async function callAnthropic(messages, cfg) {
     headers['anthropic-dangerous-direct-browser-access'] = 'true';
   }
 
-  const r = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body) });
-  if (!r.ok) {
-    const text = await r.text();
-    throw new Error(`Claude API ${r.status}: ${text.slice(0, 300)}`);
-  }
-  return await r.json();
+  return await streamAnthropicMessages({ url, headers, body, onPartialStep });
 }

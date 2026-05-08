@@ -33,15 +33,21 @@
       sidebar.clearLog();
       for (const item of msg.items) {
         if (item.kind === 'user') sidebar.addMessage('user', item.text);
-        else if (item.kind === 'step') sidebar.addStep(item.stepNumber, item.instruction, item.detail);
+        else if (item.kind === 'step') sidebar.upsertStep(item.stepNumber, item.instruction, item.detail, true);
       }
       // 历史里如果最后一步还没 done，意味着 agent 在等用户做完那一步——
       // 但跨 nav 后 overlay 已经丢，没法恢复高亮。先 open 面板提示用户可继续。
       if (msg.items.length) sidebar.open();
       return;
     }
+    if (msg.type === 'step_streaming') {
+      sidebar.upsertStep(msg.stepNumber, msg.instruction || '', msg.detail || '');
+      sidebar.open();
+      return;
+    }
     if (msg.type === 'display_step') {
-      sidebar.addStep(msg.stepNumber, msg.instruction, msg.detail);
+      // streaming 完成后的最终权威版本，关掉光标
+      sidebar.upsertStep(msg.stepNumber, msg.instruction, msg.detail, true);
       sidebar.open();
       return;
     }
