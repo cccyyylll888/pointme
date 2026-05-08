@@ -79,6 +79,15 @@
     </label>
   </div>
 
+  <h2>实验性</h2>
+  <div class="panel">
+    <label style="display:flex; align-items:center; gap:8px; margin-top:0; font-weight:500">
+      <input id="streaming" type="checkbox" style="width:auto">
+      启用流式输出（实验性）
+    </label>
+    <div class="hint">让步骤卡片像打字机一样逐字出现。<strong>已知坑</strong>：MV3 service worker 在长时流式 fetch 下偶发被 Chrome 挂起，导致整体卡死 30 秒以上。如果你遇到卡死，关掉这个开关。默认关。</div>
+  </div>
+
   <div class="row">
     <button id="save">保存</button>
     <button id="test" type="button" style="background:#374151">测试连接</button>

@@ -92,8 +92,8 @@ export function openAIResponseToAnthropic(resp) {
   return { content, stop_reason: choice.finish_reason };
 }
 
-// === 非流式调用（保留作为 fallback）===
-export async function callOpenAICompatible({ baseUrl, model, apiKey, system, messages, tools, maxTokens = 1024, onPartialStep }) {
+// === 入口：根据 useStreaming 选路径 ===
+export async function callOpenAICompatible({ baseUrl, model, apiKey, system, messages, tools, maxTokens = 1024, useStreaming = false, onPartialStep }) {
   if (!baseUrl) throw new Error('OpenAI 兼容：未配置 Base URL');
   if (!model)   throw new Error('OpenAI 兼容：未配置 Model 名称');
   if (!apiKey)  throw new Error('OpenAI 兼容：未配置 API Key');
@@ -107,8 +107,31 @@ export async function callOpenAICompatible({ baseUrl, model, apiKey, system, mes
     tool_choice: 'auto'
   };
 
-  // 默认走 streaming —— 提速感知最大的那一招
-  return await streamOpenAI({ url, apiKey, body: baseBody, onPartialStep });
+  if (useStreaming) {
+    return await streamOpenAI({ url, apiKey, body: baseBody, onPartialStep });
+  }
+
+  // 非流式（默认）
+  const ctrl = new AbortController();
+  const timeoutId = setTimeout(() => ctrl.abort(), 60000);
+  try {
+    const r = await fetch(url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'authorization': 'Bearer ' + apiKey },
+      body: JSON.stringify(baseBody),
+      signal: ctrl.signal
+    });
+    if (!r.ok) {
+      const text = await r.text();
+      console.error('[PointMe openai] request failed', { url, model, status: r.status, errorBody: text });
+      console.error('[PointMe openai] outbound messages:', JSON.stringify(baseBody.messages, null, 2));
+      throw new Error(`OpenAI 兼容 API ${r.status}: ${text.slice(0, 400)}`);
+    }
+    const json = await r.json();
+    return openAIResponseToAnthropic(json);
+  } finally {
+    clearTimeout(timeoutId);
+  }
 }
 
 async function streamOpenAI({ url, apiKey, body, onPartialStep }) {

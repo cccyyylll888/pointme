@@ -12,7 +12,7 @@ const PRESETS = {
   openai:   { baseUrl: 'https://api.openai.com/v1',                              model: 'gpt-4o' }
 };
 
-const FIELDS = ['provider', 'apiKey', 'proxyUrl', 'openaiBaseUrl', 'openaiModel', 'openaiKey'];
+const FIELDS = ['provider', 'apiKey', 'proxyUrl', 'openaiBaseUrl', 'openaiModel', 'openaiKey', 'streaming'];
 
 function showPanel(provider) {
   $('anthropic-panel').style.display = provider === 'anthropic' ? '' : 'none';
@@ -27,6 +27,7 @@ chrome.storage.local.get(FIELDS, (cfg) => {
   $('openaiBaseUrl').value = cfg.openaiBaseUrl || '';
   $('openaiModel').value   = cfg.openaiModel || '';
   $('openaiKey').value     = cfg.openaiKey || '';
+  $('streaming').checked   = !!cfg.streaming;
   showPanel($('provider').value);
 });
 
@@ -55,7 +56,8 @@ $('save').addEventListener('click', () => {
     proxyUrl:      $('proxyUrl').value.trim(),
     openaiBaseUrl: $('openaiBaseUrl').value.trim().replace(/\/+$/, ''),
     openaiModel:   $('openaiModel').value.trim(),
-    openaiKey:     $('openaiKey').value.trim()
+    openaiKey:     $('openaiKey').value.trim(),
+    streaming:     $('streaming').checked
   };
   chrome.storage.local.set(data, () => {
     if (chrome.runtime.lastError) {

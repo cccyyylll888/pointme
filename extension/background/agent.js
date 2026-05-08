@@ -202,7 +202,8 @@ async function invokeContentTool(session, toolUseId, name, input) {
 async function callLLM(messages, onPartialStep) {
   const cfg = await chrome.storage.local.get([
     'provider', 'apiKey', 'proxyUrl',
-    'openaiBaseUrl', 'openaiModel', 'openaiKey'
+    'openaiBaseUrl', 'openaiModel', 'openaiKey',
+    'streaming'
   ]);
   const provider = cfg.provider || 'anthropic';
 
@@ -215,6 +216,7 @@ async function callLLM(messages, onPartialStep) {
       messages,
       tools:   TOOLS,
       maxTokens: 1024,
+      useStreaming: !!cfg.streaming,
       onPartialStep
     });
   }
@@ -242,5 +244,21 @@ async function callAnthropic(messages, cfg, onPartialStep) {
     headers['anthropic-dangerous-direct-browser-access'] = 'true';
   }
 
-  return await streamAnthropicMessages({ url, headers, body, onPartialStep });
+  // streaming 模式（cfg.streaming === true）实验性，MV3 SW 下偶发卡死；默认走非流式
+  if (cfg.streaming) {
+    return await streamAnthropicMessages({ url, headers, body, onPartialStep });
+  }
+
+  const ctrl = new AbortController();
+  const timeoutId = setTimeout(() => ctrl.abort(), 60000);
+  try {
+    const r = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body), signal: ctrl.signal });
+    if (!r.ok) {
+      const text = await r.text();
+      throw new Error(`Claude API ${r.status}: ${text.slice(0, 300)}`);
+    }
+    return await r.json();
+  } finally {
+    clearTimeout(timeoutId);
+  }
 }
