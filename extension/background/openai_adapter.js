@@ -44,8 +44,11 @@ export function anthropicToOpenAIMessages(systemText, anthropicMessages) {
           });
         }
       }
-      const msg = { role: 'assistant' };
-      msg.content = texts.length ? texts.join('\n') : null;
+      // 注意：MiniMax / 部分国产兼容 API 不接受 content=null（即使有 tool_calls），用空字符串兜底
+      const msg = {
+        role: 'assistant',
+        content: texts.length ? texts.join('\n') : ''
+      };
       if (toolCalls.length) msg.tool_calls = toolCalls;
       out.push(msg);
     }
@@ -111,6 +114,9 @@ export async function callOpenAICompatible({ baseUrl, model, apiKey, system, mes
   });
   if (!r.ok) {
     const text = await r.text();
+    // 失败时把发出去的 messages 打印到 SW console，方便诊断（不打印 key）
+    console.error('[PointMe openai] request failed', { url, model, status: r.status, errorBody: text });
+    console.error('[PointMe openai] outbound messages:', JSON.stringify(body.messages, null, 2));
     throw new Error(`OpenAI 兼容 API ${r.status}: ${text.slice(0, 400)}`);
   }
   const json = await r.json();
