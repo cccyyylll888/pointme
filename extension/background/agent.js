@@ -72,7 +72,9 @@ chrome.runtime.onConnect.addListener((port) => {
     if (session.pendingToolResult) {
       session.pendingToolResult.resolve({
         ok: true,
-        observed: { kind: 'navigation', note: '页面已跳转，content script 重连后请 observe' }
+        observed: { kind: 'navigation' },
+        // 强命令：阻止 LLM 误判任务结束 → 必须 observe + say_step 继续
+        next_action_required: 'NAVIGATION_DETECTED. The user successfully completed the previous step and the page has navigated. The overall task is NOT finished — keep guiding. You MUST: (1) call observe to fetch the new page snapshot; (2) call clear_overlay; (3) call say_step with stepNumber = previous + 1 describing the next action; (4) call highlight/annotate/wait_for_user_action for the next interaction. DO NOT call done. DO NOT just output text.'
       });
       session.pendingToolResult = null;
     }
