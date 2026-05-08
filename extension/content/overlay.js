@@ -54,8 +54,13 @@
   const layer = root.getElementById('layer');
   const svg = root.getElementById('svg');
 
-  const items = new Map(); // id -> {el}
+  const items = new Map(); // id -> {el, ref, kind, target?}
   let counter = 0;
+
+  // 监听被指引元素自己的尺寸/位置变化（搜索框展开、菜单弹出等）
+  const ro = new ResizeObserver(() => schedule());
+  // 监听属性/文本变化（input value 改变会影响宽度）
+  const mo = new MutationObserver(() => schedule());
 
   const rectOf = (refId) => {
     const el = window.__pointme_snapshot__?.resolveRef(refId);
@@ -79,13 +84,16 @@
         width: r.width + 8 + 'px', height: r.height + 8 + 'px'
       });
       layer.appendChild(ring);
-      items.set(id, { el: ring, ref: refId, kind: 'ring' });
+      items.set(id, { el: ring, ref: refId, kind: 'ring', target: el });
+      ro.observe(el);
+      mo.observe(el, { attributes: true, childList: true, subtree: true });
       return { ok: true, id };
     },
 
     annotate(refId, text) {
       const r = rectOf(refId);
       if (!r) return { ok: false, error: 'ref not found' };
+      const el = window.__pointme_snapshot__.resolveRef(refId);
       const note = document.createElement('div');
       note.className = 'annot';
       note.textContent = text;
@@ -96,7 +104,8 @@
         top: Math.max(8, r.top) + 'px'
       });
       layer.appendChild(note);
-      items.set(id, { el: note, ref: refId, kind: 'annot' });
+      items.set(id, { el: note, ref: refId, kind: 'annot', target: el });
+      if (el) { ro.observe(el); mo.observe(el, { attributes: true }); }
       return { ok: true, id };
     },
 
@@ -126,6 +135,8 @@
     clear() {
       items.forEach(({ el }) => el.remove());
       items.clear();
+      ro.disconnect();
+      mo.disconnect();
       return { ok: true };
     },
 

@@ -70,38 +70,40 @@
   };
 
   const summarize = (el) => {
-    const rect = el.getBoundingClientRect();
     const node = {
       ref: getRef(el),
       role: elementRole(el),
-      name: accessibleName(el),
-      pos: [Math.round(rect.left), Math.round(rect.top), Math.round(rect.width), Math.round(rect.height)]
+      name: accessibleName(el).slice(0, 50)
     };
-    if (el.getAttribute('aria-pressed')) node.pressed = el.getAttribute('aria-pressed') === 'true';
-    if (el.getAttribute('aria-expanded')) node.expanded = el.getAttribute('aria-expanded') === 'true';
-    if (el.getAttribute('aria-current')) node.current = true;
+    // 只保留 LLM 真正会用到的状态字段
+    if (el.getAttribute('aria-expanded') === 'true') node.expanded = true;
+    if (el.getAttribute('aria-pressed') === 'true') node.pressed = true;
     if (el.disabled || el.getAttribute('aria-disabled') === 'true') node.disabled = true;
-    if (el.value && el.tagName === 'INPUT') node.value = String(el.value).slice(0, 60);
-    if (el.tagName === 'A' && el.href) node.href = el.href.slice(0, 120);
+    if (el.value && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA')) {
+      node.value = String(el.value).slice(0, 30);
+    }
     return node;
   };
 
-  const capture = ({ includeOffscreen = false } = {}) => {
-    refToEl.clear();   // 每次 snapshot 重新分配 ref，避免老 ref 漂移
+  // 视口内的元素优先；多余的丢弃。max 默认 80（足够复杂页面），过多反而稀释 LLM 注意力
+  const capture = ({ includeOffscreen = false, max = 80 } = {}) => {
+    refToEl.clear();
     refCounter = 0;
     const all = Array.from(document.querySelectorAll(INTERACTIVE_SELECTORS));
-    const filtered = all.filter(el => isVisible(el) && (includeOffscreen || isNear(el)));
+    let filtered = all.filter(el => isVisible(el) && (includeOffscreen || isNear(el)));
 
-    // 同样保留页面主标题/h1-h3 当锚点 — 给 agent 看上下文
-    const headings = Array.from(document.querySelectorAll('h1,h2,h3'))
-      .filter(isVisible).slice(0, 12)
-      .map(h => ({ role: 'heading', level: +h.tagName[1], name: h.innerText.trim().slice(0, 80) }));
+    // 视口内排前面（agent 通常关心当前视野），超出 max 的截掉
+    filtered.sort((a, b) => {
+      const ra = a.getBoundingClientRect(), rb = b.getBoundingClientRect();
+      const inA = ra.top >= 0 && ra.top < window.innerHeight ? 0 : 1;
+      const inB = rb.top >= 0 && rb.top < window.innerHeight ? 0 : 1;
+      return inA - inB || ra.top - rb.top;
+    });
+    if (filtered.length > max) filtered = filtered.slice(0, max);
 
     return {
       url: location.href,
-      title: document.title,
-      viewport: { w: window.innerWidth, h: window.innerHeight, scrollY: window.scrollY },
-      headings,
+      title: document.title.slice(0, 100),
       elements: filtered.map(summarize)
     };
   };

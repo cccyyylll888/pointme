@@ -49,10 +49,25 @@
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
   });
 
+  // 把 LLM 偶发输出的轻量 markdown 渲染成 HTML（先转义防 XSS，再有限替换）
+  const renderInline = (text) => {
+    if (text == null) return '';
+    let s = String(text)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    s = s.replace(/\*\*([^*\n]+?)\*\*/g, '<strong>$1</strong>');
+    s = s.replace(/(?<![*\w])\*([^*\n]+?)\*(?![*\w])/g, '<em>$1</em>');
+    s = s.replace(/`([^`\n]+?)`/g, '<code>$1</code>');
+    s = s.replace(/「([^」\n]+?)」/g, '<strong>「$1」</strong>');
+    s = s.replace(/\n/g, '<br>');
+    return s;
+  };
+
   const addMessage = (role, text) => {
     const div = document.createElement('div');
     div.className = 'pm-msg ' + role;
-    div.textContent = text;
+    if (role === 'tool' || role === 'user') div.textContent = text;
+    else div.innerHTML = renderInline(text);
     log.appendChild(div);
     log.scrollTop = log.scrollHeight;
     return div;
@@ -68,12 +83,12 @@
     body.className = 'pm-step-body';
     const inst = document.createElement('div');
     inst.className = 'pm-step-instruction';
-    inst.textContent = instruction;
+    inst.innerHTML = renderInline(instruction);
     body.appendChild(inst);
     if (detail) {
       const det = document.createElement('div');
       det.className = 'pm-step-detail';
-      det.textContent = detail;
+      det.innerHTML = renderInline(detail);
       body.appendChild(det);
     }
     card.appendChild(badge);
