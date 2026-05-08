@@ -1,0 +1,25 @@
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Cloudflare Worker
+proxy/.wrangler/
+proxy/node_modules/
+proxy/.dev.vars
+
+# Logs / temp
+*.log
+*.tmp
+
+# Local secrets (不要提交！)
+.env
+.env.local
+*.pem
+secrets.json

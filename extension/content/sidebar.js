@@ -1,0 +1,71 @@
+// sidebar.js — 右下角小人 + 对话面板
+// 暴露 pointmeSidebar.{open, close, addMessage, setThinking, onSubmit}
+
+(() => {
+  if (window.__pointme_sidebar__) return;
+
+  const root = document.createElement('div');
+  root.id = '__pointme_sidebar_root__';
+  root.innerHTML = `
+    <div class="pm-panel">
+      <div class="pm-header">
+        <span>PointMe · 网页向导</span>
+        <button class="pm-close" title="关闭">×</button>
+      </div>
+      <div class="pm-log"></div>
+      <div class="pm-input">
+        <textarea placeholder="问我怎么用这个网站… (Enter 发送, Shift+Enter 换行)"></textarea>
+        <button class="pm-send">发送</button>
+      </div>
+    </div>
+    <div class="pm-mascot" title="召唤 PointMe">🦊</div>
+  `;
+  document.documentElement.appendChild(root);
+
+  const $ = (sel) => root.querySelector(sel);
+  const log = $('.pm-log');
+  const ta = $('.pm-input textarea');
+  const sendBtn = $('.pm-send');
+  const mascot = $('.pm-mascot');
+
+  let submitHandler = null;
+
+  const open = () => root.classList.add('open');
+  const close = () => root.classList.remove('open');
+  const isOpen = () => root.classList.contains('open');
+
+  mascot.addEventListener('click', () => isOpen() ? close() : open());
+  $('.pm-close').addEventListener('click', close);
+
+  const send = () => {
+    const text = ta.value.trim();
+    if (!text || !submitHandler) return;
+    ta.value = '';
+    submitHandler(text);
+  };
+
+  sendBtn.addEventListener('click', send);
+  ta.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
+  });
+
+  const addMessage = (role, text) => {
+    const div = document.createElement('div');
+    div.className = 'pm-msg ' + role;
+    div.textContent = text;
+    log.appendChild(div);
+    log.scrollTop = log.scrollHeight;
+    return div;
+  };
+
+  const setThinking = (b) => {
+    mascot.classList.toggle('thinking', !!b);
+    sendBtn.disabled = !!b;
+  };
+
+  window.__pointme_sidebar__ = {
+    open, close, isOpen,
+    addMessage, setThinking,
+    onSubmit(fn) { submitHandler = fn; }
+  };
+})();

@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>PointMe · 设置</title>
+<style>
+  body { font: 14px/1.5 -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+         max-width: 560px; margin: 40px auto; padding: 0 20px; color: #111; }
+  h1 { font-size: 22px; }
+  label { display: block; margin-top: 18px; font-weight: 600; }
+  input { width: 100%; padding: 8px 10px; border: 1px solid #d1d5db; border-radius: 8px;
+          font: inherit; box-sizing: border-box; }
+  .hint { color: #6b7280; font-size: 12px; margin-top: 4px; }
+  .row { display: flex; gap: 10px; align-items: center; margin-top: 24px; }
+  button { background: #ff6b35; color: white; border: none; border-radius: 8px;
+           padding: 8px 16px; font-weight: 600; cursor: pointer; }
+  .ok { color: #059669; }
+  hr { margin: 28px 0; border: none; border-top: 1px solid #e5e7eb; }
+</style>
+</head>
+<body>
+  <h1>🦊 PointMe 设置</h1>
+
+  <label>Anthropic API Key
+    <input id="apiKey" type="password" placeholder="sk-ant-...">
+  </label>
+  <div class="hint">直连 api.anthropic.com。仅存在本机 chrome.storage.local，不上传任何服务器。</div>
+
+  <hr>
+
+  <label>或者：代理 URL（可选）
+    <input id="proxyUrl" type="text" placeholder="https://your-worker.workers.dev/v1/messages">
+  </label>
+  <div class="hint">如填了代理 URL，将忽略上面的 API key —— 由代理负责注入。推荐部署 <code>proxy/</code> 里的 Cloudflare Worker。</div>
+
+  <div class="row">
+    <button id="save">保存</button>
+    <span id="status"></span>
+  </div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+chrome.storage.local.get(['apiKey', 'proxyUrl'], (cfg) => {
+  $('apiKey').value = cfg.apiKey || '';
+  $('proxyUrl').value = cfg.proxyUrl || '';
+});
+$('save').onclick = () => {
+  chrome.storage.local.set({
+    apiKey: $('apiKey').value.trim(),
+    proxyUrl: $('proxyUrl').value.trim()
+  }, () => {
+    $('status').className = 'ok'; $('status').textContent = '已保存 ✓';
+    setTimeout(() => $('status').textContent = '', 2000);
+  });
+};
+</script>
+</body>
+</html>

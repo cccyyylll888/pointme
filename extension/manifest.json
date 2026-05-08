@@ -1,0 +1,31 @@
+{
+  "manifest_version": 3,
+  "name": "PointMe — 屏幕导航小子",
+  "short_name": "PointMe",
+  "version": "0.1.0",
+  "description": "在任何网页右下角召唤一个 AI 小人，问他怎么用这个网站，他指给你看。",
+  "permissions": ["activeTab", "scripting", "storage"],
+  "host_permissions": ["<all_urls>"],
+  "background": {
+    "service_worker": "background/agent.js",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "召唤 PointMe"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": [
+        "content/snapshot.js",
+        "content/overlay.js",
+        "content/observer.js",
+        "content/sidebar.js",
+        "content/main.js"
+      ],
+      "css": ["content/sidebar.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "options_page": "sidebar/options.html"
+}
