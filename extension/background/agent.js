@@ -8,9 +8,10 @@
 //   → error {runId, error}
 
 import { TOOLS, SYSTEM_PROMPT } from './prompts.js';
+import { callOpenAICompatible } from './openai_adapter.js';
 
-const MODEL = 'claude-sonnet-4-6';
-const API_BASE_DEFAULT = 'https://api.anthropic.com/v1/messages';
+const ANTHROPIC_MODEL = 'claude-sonnet-4-6';
+const ANTHROPIC_API_DEFAULT = 'https://api.anthropic.com/v1/messages';
 
 // 每个 port 一个会话状态；切到新 tab 重连时上下文重置
 const sessions = new Map(); // portId -> { messages, runId }
@@ -62,7 +63,7 @@ chrome.runtime.onConnect.addListener((port) => {
 async function runAgentLoop(port, session) {
   const MAX_ROUNDS = 25;
   for (let round = 0; round < MAX_ROUNDS; round++) {
-    const resp = await callClaude(session.messages);
+    const resp = await callLLM(session.messages);
     const blocks = resp.content || [];
 
     // 收集助手输出（文本 + 工具调用）
@@ -114,16 +115,38 @@ function invokeContentTool(port, session, toolUseId, name, input) {
   });
 }
 
-async function callClaude(messages) {
-  const { apiKey, proxyUrl } = await chrome.storage.local.get(['apiKey', 'proxyUrl']);
-  const url = proxyUrl || API_BASE_DEFAULT;
-  const useDirect = !proxyUrl;
-  if (useDirect && !apiKey) {
-    throw new Error('未配置 API key — 点扩展图标 → Options 贴一个进去');
+async function callLLM(messages) {
+  const cfg = await chrome.storage.local.get([
+    'provider', 'apiKey', 'proxyUrl',
+    'openaiBaseUrl', 'openaiModel', 'openaiKey'
+  ]);
+  const provider = cfg.provider || 'anthropic';
+
+  if (provider === 'openai') {
+    return await callOpenAICompatible({
+      baseUrl: cfg.openaiBaseUrl,
+      model:   cfg.openaiModel,
+      apiKey:  cfg.openaiKey,
+      system:  SYSTEM_PROMPT,
+      messages,
+      tools:   TOOLS,
+      maxTokens: 1024
+    });
+  }
+
+  // 默认 Anthropic
+  return await callAnthropic(messages, cfg);
+}
+
+async function callAnthropic(messages, cfg) {
+  const url = cfg.proxyUrl || ANTHROPIC_API_DEFAULT;
+  const useDirect = !cfg.proxyUrl;
+  if (useDirect && !cfg.apiKey) {
+    throw new Error('未配置 Anthropic API key — 点扩展图标 → Options 贴一个进去');
   }
 
   const body = {
-    model: MODEL,
+    model: ANTHROPIC_MODEL,
     max_tokens: 1024,
     system: [{ type: 'text', text: SYSTEM_PROMPT, cache_control: { type: 'ephemeral' } }],
     tools: TOOLS,
@@ -132,7 +155,7 @@ async function callClaude(messages) {
 
   const headers = { 'content-type': 'application/json', 'anthropic-version': '2023-06-01' };
   if (useDirect) {
-    headers['x-api-key'] = apiKey;
+    headers['x-api-key'] = cfg.apiKey;
     headers['anthropic-dangerous-direct-browser-access'] = 'true';
   }
 
