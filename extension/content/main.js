@@ -16,7 +16,6 @@
   }
 
   let port = null;
-  let currentRunId = 0;
 
   const ensurePort = () => {
     if (port) return port;
@@ -26,18 +25,29 @@
     return port;
   };
 
-  // 处理 background 发来的消息
-  async function handleAgentMessage(msg) {
-    if (msg.runId !== currentRunId) return; // 老 run 的回声，丢弃
+  // 一注入就先建 port，让 background 立刻推 restore_history（页面跳转后回填历史）
+  ensurePort();
 
-    if (msg.type === 'assistant_text') {
-      sidebar.addMessage('assistant', msg.text);
+  async function handleAgentMessage(msg) {
+    if (msg.type === 'restore_history') {
+      sidebar.clearLog();
+      for (const item of msg.items) {
+        if (item.kind === 'user') sidebar.addMessage('user', item.text);
+        else if (item.kind === 'step') sidebar.addStep(item.stepNumber, item.instruction, item.detail);
+      }
+      // 历史里如果最后一步还没 done，意味着 agent 在等用户做完那一步——
+      // 但跨 nav 后 overlay 已经丢，没法恢复高亮。先 open 面板提示用户可继续。
+      if (msg.items.length) sidebar.open();
+      return;
+    }
+    if (msg.type === 'display_step') {
+      sidebar.addStep(msg.stepNumber, msg.instruction, msg.detail);
+      sidebar.open();
       return;
     }
     if (msg.type === 'tool_call') {
       const result = await executeTool(msg.tool, msg.input);
-      sidebar.addMessage('tool', `🔧 ${msg.tool}(${shortJson(msg.input)}) → ${shortJson(result).slice(0, 80)}`);
-      port.postMessage({ type: 'tool_result', runId: msg.runId, toolUseId: msg.toolUseId, result });
+      port?.postMessage({ type: 'tool_result', toolUseId: msg.toolUseId, result });
       return;
     }
     if (msg.type === 'done') {
@@ -51,13 +61,11 @@
     }
   }
 
-  // 执行 agent 的工具调用
   async function executeTool(name, input) {
     try {
       switch (name) {
         case 'observe': {
           const s = snap.capture({ includeOffscreen: !!input?.includeOffscreen });
-          // 只发文字 a11y 树；截图 demo 里先省略，token 太贵
           return { ok: true, snapshot: s };
         }
         case 'highlight':       return overlay.highlight(input.refId);
@@ -66,15 +74,15 @@
         case 'scroll_to':       return overlay.scroll_to(input.refId);
         case 'clear_overlay':   return overlay.clear();
         case 'wait_for_user_action': {
-          // 等之前先重新 snapshot 一次，确保 ref 是最新可见的
-          snap.capture();
+          snap.capture(); // 等待前刷新一次 ref 表，让 click 反查能命中
           return await observer.waitFor(input.condition, { timeoutMs: input.timeoutMs || 120000 });
         }
         case 'ask_user': {
           sidebar.addMessage('assistant', '❓ ' + input.question);
+          sidebar.open();
           return await new Promise((resolve) => {
             const handler = (text) => {
-              sidebar.onSubmit(originalHandler); // 还原
+              sidebar.onSubmit(originalHandler);
               resolve({ ok: true, answer: text });
             };
             sidebar.onSubmit(handler);
@@ -83,6 +91,7 @@
         case 'done': {
           overlay.clear();
           sidebar.addMessage('assistant', '✅ ' + (input.summary || '完成'));
+          sidebar.setThinking(false);
           return { ok: true };
         }
         default:
@@ -93,23 +102,16 @@
     }
   }
 
-  // 工具栏小人对话框 → 用户提交问题
   let originalHandler;
   originalHandler = (text) => {
     sidebar.addMessage('user', text);
     sidebar.setThinking(true);
-    currentRunId++;
     const initialSnap = snap.capture();
     ensurePort().postMessage({
       type: 'user_message',
-      runId: currentRunId,
       text,
       snapshot: initialSnap
     });
   };
   sidebar.onSubmit(originalHandler);
-
-  function shortJson(o) {
-    try { return JSON.stringify(o); } catch { return String(o); }
-  }
 })();

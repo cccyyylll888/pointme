@@ -58,6 +58,33 @@
     return div;
   };
 
+  const addStep = (stepNumber, instruction, detail) => {
+    const card = document.createElement('div');
+    card.className = 'pm-step';
+    const badge = document.createElement('div');
+    badge.className = 'pm-step-badge';
+    badge.textContent = stepNumber > 0 ? String(stepNumber) : '!';
+    const body = document.createElement('div');
+    body.className = 'pm-step-body';
+    const inst = document.createElement('div');
+    inst.className = 'pm-step-instruction';
+    inst.textContent = instruction;
+    body.appendChild(inst);
+    if (detail) {
+      const det = document.createElement('div');
+      det.className = 'pm-step-detail';
+      det.textContent = detail;
+      body.appendChild(det);
+    }
+    card.appendChild(badge);
+    card.appendChild(body);
+    log.appendChild(card);
+    log.scrollTop = log.scrollHeight;
+    return card;
+  };
+
+  const clearLog = () => { log.innerHTML = ''; };
+
   const setThinking = (b) => {
     mascot.classList.toggle('thinking', !!b);
     sendBtn.disabled = !!b;
@@ -65,7 +92,7 @@
 
   window.__pointme_sidebar__ = {
     open, close, isOpen,
-    addMessage, setThinking,
+    addMessage, addStep, clearLog, setThinking,
     onSubmit(fn) { submitHandler = fn; }
   };
 })();
