@@ -38,21 +38,6 @@
     <span id="status"></span>
   </div>
 
-<script>
-const $ = (id) => document.getElementById(id);
-chrome.storage.local.get(['apiKey', 'proxyUrl'], (cfg) => {
-  $('apiKey').value = cfg.apiKey || '';
-  $('proxyUrl').value = cfg.proxyUrl || '';
-});
-$('save').onclick = () => {
-  chrome.storage.local.set({
-    apiKey: $('apiKey').value.trim(),
-    proxyUrl: $('proxyUrl').value.trim()
-  }, () => {
-    $('status').className = 'ok'; $('status').textContent = '已保存 ✓';
-    setTimeout(() => $('status').textContent = '', 2000);
-  });
-};
-</script>
+<script src="options.js"></script>
 </body>
 </html>
