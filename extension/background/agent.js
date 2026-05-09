@@ -129,6 +129,8 @@ async function sendToPort(session, msg) {
 
 async function runAgentLoop(session) {
   const MAX_ROUNDS = 25;
+  const MAX_STUCK_RETRIES = 2;
+  let stuckRetries = 0;
 
   // 流式回调：在 LLM 还没结束输出时，提前把 say_step 的内容流到 sidebar
   const onPartialStep = (partial) => {
@@ -141,18 +143,40 @@ async function runAgentLoop(session) {
 
     const assistantContent = [];
     const toolCalls = [];
+    const textParts = [];
     for (const block of blocks) {
       if (block.type === 'text') {
-        // 不再向用户展示原始 text — 只作为 agent 内部 reasoning 留在 messages 里
-        if (block.text.trim()) assistantContent.push({ type: 'text', text: block.text });
+        if (block.text.trim()) {
+          assistantContent.push({ type: 'text', text: block.text });
+          textParts.push(block.text);
+        }
       } else if (block.type === 'tool_use') {
         assistantContent.push({ type: 'tool_use', id: block.id, name: block.name, input: block.input });
         toolCalls.push(block);
       }
     }
+    console.log(`[PointMe agent] round=${round} tools=[${toolCalls.map(t => t.name).join(',')}] text="${textParts.join(' ').slice(0, 120)}"`);
     if (assistantContent.length) session.messages.push({ role: 'assistant', content: assistantContent });
 
-    if (toolCalls.length === 0) return;
+    if (toolCalls.length === 0) {
+      // text-only 自救：LLM 没调任何工具，用户看不到任何东西。多数情况是 MiniMax 等
+      // 不严格遵守"必须调 tool"的指令，加一条 user 消息硬拉它回协议轨道。
+      if (stuckRetries < MAX_STUCK_RETRIES) {
+        stuckRetries++;
+        console.warn(`[PointMe agent] no tool calls — coercing retry ${stuckRetries}/${MAX_STUCK_RETRIES}`);
+        session.messages.push({
+          role: 'user',
+          content: 'PROTOCOL VIOLATION: You returned plain text instead of calling tools. The user CANNOT see plain text — only tool outputs (say_step, highlight, etc.) reach the UI. You MUST call tools now. If the page just navigated, call: observe → clear_overlay → say_step (stepNumber +1) → highlight → wait_for_user_action. If the task is genuinely complete, call done({summary}). Otherwise continue with the next step. Do NOT respond with text only again.'
+        });
+        continue;
+      }
+      // 重试用尽 → 至少给用户一句反馈
+      const stuckMsg = { kind: 'step', stepNumber: 0, instruction: 'AI 没按协议给出指令', detail: '它只输出了文字没调工具。可以重问一次，或在 Options 里换 provider。' };
+      session.displayLog.push(stuckMsg);
+      await sendToPort(session, { type: 'display_step', runId: session.runId, ...stuckMsg });
+      return;
+    }
+    stuckRetries = 0;
 
     const toolResultBlocks = [];
     for (const tc of toolCalls) {
@@ -215,7 +239,7 @@ async function callLLM(messages, onPartialStep) {
       system:  SYSTEM_PROMPT,
       messages,
       tools:   TOOLS,
-      maxTokens: 1024,
+      maxTokens: 2048,
       useStreaming: !!cfg.streaming,
       onPartialStep
     });
@@ -233,7 +257,7 @@ async function callAnthropic(messages, cfg, onPartialStep) {
 
   const body = {
     model: ANTHROPIC_MODEL,
-    max_tokens: 1024,
+    max_tokens: 2048,
     system: [{ type: 'text', text: SYSTEM_PROMPT, cache_control: { type: 'ephemeral' } }],
     tools: TOOLS,
     messages
