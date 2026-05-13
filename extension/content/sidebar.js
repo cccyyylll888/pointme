@@ -37,6 +37,89 @@
   mascot.addEventListener('click', () => isOpen() ? close() : open());
   $('.pm-close').addEventListener('click', close);
 
+  // === 拖拽逻辑 ===
+  // 改 root 的 right/bottom 让悬浮球可以被拖到任意位置；位置存 localStorage 跨页面记忆
+  // 区分 click 和 drag：超过 4px 移动算 drag，drag 结束后吞掉随后的 click 防止 toggle 误触发
+  const POS_KEY = '__pointme_pos__';
+  const MARGIN = 8;
+  const MASCOT_SIZE = 56;
+
+  const clampAndSet = (rightPx, bottomPx) => {
+    const maxR = Math.max(MARGIN, window.innerWidth  - MASCOT_SIZE - MARGIN);
+    const maxB = Math.max(MARGIN, window.innerHeight - MASCOT_SIZE - MARGIN);
+    const r = Math.max(MARGIN, Math.min(maxR, rightPx));
+    const b = Math.max(MARGIN, Math.min(maxB, bottomPx));
+    root.style.right  = r + 'px';
+    root.style.bottom = b + 'px';
+    return { r, b };
+  };
+
+  // 恢复上次位置
+  try {
+    const saved = JSON.parse(localStorage.getItem(POS_KEY) || 'null');
+    if (saved && Number.isFinite(saved.right) && Number.isFinite(saved.bottom)) {
+      clampAndSet(saved.right, saved.bottom);
+    }
+  } catch {}
+
+  // 窗口缩小时把球拉回视口
+  window.addEventListener('resize', () => {
+    const r = parseFloat(root.style.right)  || 16;
+    const b = parseFloat(root.style.bottom) || 16;
+    clampAndSet(r, b);
+  });
+
+  let drag = null;
+  let suppressNextClick = false;
+
+  mascot.addEventListener('pointerdown', (e) => {
+    if (e.button !== undefined && e.button !== 0) return;
+    const rect = root.getBoundingClientRect();
+    drag = {
+      pointerId: e.pointerId,
+      startX: e.clientX,
+      startY: e.clientY,
+      origRight:  window.innerWidth  - rect.right,
+      origBottom: window.innerHeight - rect.bottom,
+      moved: false
+    };
+    try { mascot.setPointerCapture(e.pointerId); } catch {}
+    mascot.classList.add('pm-dragging');
+  });
+
+  mascot.addEventListener('pointermove', (e) => {
+    if (!drag || e.pointerId !== drag.pointerId) return;
+    const dx = e.clientX - drag.startX;
+    const dy = e.clientY - drag.startY;
+    if (!drag.moved && Math.hypot(dx, dy) > 4) drag.moved = true;
+    if (!drag.moved) return;
+    clampAndSet(drag.origRight - dx, drag.origBottom - dy);
+  });
+
+  const finishDrag = (e) => {
+    if (!drag || e.pointerId !== drag.pointerId) return;
+    try { mascot.releasePointerCapture(e.pointerId); } catch {}
+    mascot.classList.remove('pm-dragging');
+    if (drag.moved) {
+      suppressNextClick = true;
+      const r = parseFloat(root.style.right)  || 16;
+      const b = parseFloat(root.style.bottom) || 16;
+      try { localStorage.setItem(POS_KEY, JSON.stringify({ right: r, bottom: b })); } catch {}
+    }
+    drag = null;
+  };
+  mascot.addEventListener('pointerup', finishDrag);
+  mascot.addEventListener('pointercancel', finishDrag);
+
+  // 捕获阶段拦截 drag 之后那次 click，避免拖完之后顺手把面板 toggle 掉
+  mascot.addEventListener('click', (e) => {
+    if (suppressNextClick) {
+      suppressNextClick = false;
+      e.stopImmediatePropagation();
+      e.preventDefault();
+    }
+  }, true);
+
   const send = () => {
     const text = ta.value.trim();
     if (!text || !submitHandler) return;

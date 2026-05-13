@@ -16,12 +16,14 @@
   background: linear-gradient(135deg, #ff6b35 0%, #f7b731 100%);
   box-shadow: 0 6px 20px rgba(255, 107, 53, 0.45);
   display: flex; align-items: center; justify-content: center;
-  cursor: pointer;
+  cursor: grab;
   font-size: 28px;
   user-select: none;
+  touch-action: none;          /* 防止移动端拖拽触发页面滚动 */
   transition: transform 200ms;
 }
 #__pointme_sidebar_root__ .pm-mascot:hover { transform: scale(1.06); }
+#__pointme_sidebar_root__ .pm-mascot.pm-dragging { cursor: grabbing; transform: scale(1.1); transition: none; }
 #__pointme_sidebar_root__ .pm-mascot.thinking { animation: pmThink 1.2s ease-in-out infinite; }
 @keyframes pmThink { 0%,100%{ transform: translateY(0); } 50% { transform: translateY(-6px); } }
 
