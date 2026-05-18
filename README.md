@@ -2,6 +2,8 @@
 
 > 不替你操作网页，**站在你旁边指着屏幕教你怎么用**。任何网站、任何任务。
 
+![PointMe hero](assets/pointme-hero.png)
+
 ## 一句话定位
 
 PointMe 是一个 Chrome 扩展。装上之后，每个网页右下角都会出现一个像素小人。
